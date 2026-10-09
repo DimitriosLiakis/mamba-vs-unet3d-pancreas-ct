@@ -355,6 +355,9 @@ if __name__ == "__main__":
                 ema_embedding = F.normalize(ema_embedding, dim=-1)
 
                 # Labels downsampled to the resolution of the contrastive features.
+                # As in the upstream DyCON code, this uses label_batch for the whole batch, so
+                # FeCL on the unlabeled half sees the ground-truth masks of those scans
+                # (see "What the numbers mean" in the README).
                 mask_con = F.interpolate(label_batch.unsqueeze(1).float(), scale_factor=1/(args.feature_scaler * 4),
                                          mode='trilinear', align_corners=False).squeeze(1)
                 mask_con = (mask_con > 0.5).float()
