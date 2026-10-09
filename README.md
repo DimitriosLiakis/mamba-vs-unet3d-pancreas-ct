@@ -360,6 +360,11 @@ To cite the thesis:
 }
 ```
 
+## Author
+
+**Dimitrios Liakis** · [LinkedIn](https://www.linkedin.com/in/dimitris-liakis-303886277/) ·
+[el20846@mail.ntua.gr](mailto:el20846@mail.ntua.gr)
+
 ## License
 
 [MIT](LICENSE), covering the original DyCON code (© 2025 Computer Vision and Machine Learning Lab) and my
