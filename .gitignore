@@ -1,0 +1,29 @@
+# Data: only the split lists are versioned
+data/**/Pancreas_data/
+*.h5
+*.nii
+*.nii.gz
+*.npy
+*.npz
+
+# Checkpoints, pretrained weights and run outputs
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+models/
+code/data/pretrained/
+predictions/
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

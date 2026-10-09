@@ -1,0 +1,19 @@
+# Python packages used by code/. Versions are the ones installed for the thesis
+# runs on Kaggle (Python 3.12, PyTorch 2.10, CUDA 12).
+#
+# Install PyTorch and torchvision for your CUDA version first (PyTorch >= 2.3):
+#   https://pytorch.org/get-started/locally/
+# Then:
+#   pip install -r requirements.txt
+#   pip install mamba-ssm causal-conv1d --no-build-isolation   # Swin-UMamba only (builds CUDA kernels)
+
+numpy<2.0            # the runs used NumPy 1.26; medpy 0.4 predates NumPy 2
+einops==0.6.1
+timm==1.0.3
+monai==1.5.2
+tensorboardX==2.6.2.2
+medpy==0.4.0
+scikit-image>=0.21
+h5py
+nibabel
+tqdm
