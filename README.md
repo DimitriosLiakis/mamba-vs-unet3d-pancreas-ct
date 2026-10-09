@@ -151,8 +151,13 @@ checkpoint. The checkpoints themselves (about 1 GB each) are not included.
   - Swin-UMamba (DyCON): Dice +11.52 points and HD95 halved.
   - 3D U-Net (DyCON): ASD 21.55 → 2.22.
 
-  The large post-LCC spread of Swin-UMamba (HD95 ± 43.98) comes from scans where the largest component is not
-  the pancreas. There, LCC keeps the wrong region and drops the organ.
+  Per-scan results show both sides of LCC. They come from re-running the thesis evaluation on the saved
+  Swin-UMamba (DyCON) checkpoint:
+  - LCC raises Dice in 17 of the 20 scans.
+  - In 2 scans (PANCREAS_0005 and PANCREAS_0015) the largest component is not the pancreas, so LCC keeps the
+    wrong region and Dice falls to 0 (from 43.2% and 27.2%).
+  - These two scans account for most of the post-LCC spread. Without them, HD95 is 23.26 ± 19.43 instead of
+    36.41 ± 43.98, and ASD is 4.27 ± 4.10 instead of 12.85 ± 27.09.
 - **The CNN is ahead at this resolution.** The 3D U-Net beats Swin-UMamba in all four settings. Several factors
   stack up:
   - **Small slices:** a 64×64 slice shrinks to a 2×2 grid in the deepest Mamba stage.
