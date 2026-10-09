@@ -1,16 +1,15 @@
-import os
-import torch
-import numpy as np
-from glob import glob
-from torch.utils.data import Dataset
-from skimage import transform as sk_trans
-import h5py
+"""PancreasCT dataset (preprocessed .h5 volumes), training transforms and the two-stream batch sampler."""
 import itertools
+
+import h5py
+import numpy as np
+import torch
+from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
 
 
 class Pancreas(Dataset):
-    """ Pancreas Dataset """
+    """Volumes listed in train.list (split='train') or test.list (split='test' or 'val')."""
 
     def __init__(self, base_dir=None, split='train', num=None, transform=None):
         self._base_dir = base_dir
@@ -46,137 +45,72 @@ class Pancreas(Dataset):
         return sample
 
 
-class Resize(object):
-
-    def __init__(self, output_size):
-        self.output_size = output_size
-
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
-        (w, h, d) = image.shape
-        label = label.astype(bool)
-        image = sk_trans.resize(image, self.output_size, order = 1, mode = 'constant', cval = 0)
-        label = sk_trans.resize(label, self.output_size, order = 0)
-        assert(np.max(label) == 1 and np.min(label) == 0)
-        assert(np.unique(label).shape[0] == 2)
-        
-        return {'image': image, 'label': label}
-
-class CenterCrop(object):
-    def __init__(self, output_size):
-        self.output_size = output_size
-
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
-
-        if label.shape[0] <= self.output_size[0] or label.shape[1] <= self.output_size[1] or label.shape[2] <= \
-                self.output_size[2]:
-            pw = max((self.output_size[0] - label.shape[0]) // 2 + 3, 0)
-            ph = max((self.output_size[1] - label.shape[1]) // 2 + 3, 0)
-            pd = max((self.output_size[2] - label.shape[2]) // 2 + 3, 0)
-            image = np.pad(image, [(pw, pw), (ph, ph), (pd, pd)],
-                           mode='constant', constant_values=0)
-            label = np.pad(label, [(pw, pw), (ph, ph), (pd, pd)],
-                           mode='constant', constant_values=0)
-
-        (w, h, d) = image.shape
-
-        w1 = int(round((w - self.output_size[0]) / 2.))
-        h1 = int(round((h - self.output_size[1]) / 2.))
-        d1 = int(round((d - self.output_size[2]) / 2.))
-
-        label = label[w1:w1 + self.output_size[0], h1:h1 +
-                      self.output_size[1], d1:d1 + self.output_size[2]]
-        image = image[w1:w1 + self.output_size[0], h1:h1 +
-                      self.output_size[1], d1:d1 + self.output_size[2]]
-
-        return {'image': image, 'label': label}
-
-
-
 class RandomCrop(object):
     """
-    Crop randomly the image in a sample, with a 50% chance to center 
-    around the foreground (pancreas) to prevent severe class imbalance.
+    Random crop of `output_size`. With probability 0.5 the crop is centred on a
+    random pancreas voxel, so that small patches still contain the organ
+    (it occupies a tiny fraction of an abdominal CT volume).
     """
 
-    def __init__(self, output_size, with_sdf=False):
+    def __init__(self, output_size):
         self.output_size = output_size
-        self.with_sdf = with_sdf
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        if self.with_sdf:
-            sdf = sample['sdf']
 
-        # 1. Padding: Αν η εικόνα είναι μικρότερη από το output_size
+        # Pad volumes that are not larger than the patch.
         if label.shape[0] <= self.output_size[0] or label.shape[1] <= self.output_size[1] or label.shape[2] <= \
                 self.output_size[2]:
             pw = max((self.output_size[0] - label.shape[0]) // 2 + 3, 0)
             ph = max((self.output_size[1] - label.shape[1]) // 2 + 3, 0)
             pd = max((self.output_size[2] - label.shape[2]) // 2 + 3, 0)
-            
+
             image = np.pad(image, [(pw, pw), (ph, ph), (pd, pd)],
                            mode='constant', constant_values=0)
             label = np.pad(label, [(pw, pw), (ph, ph), (pd, pd)],
                            mode='constant', constant_values=0)
-            if self.with_sdf:
-                sdf = np.pad(sdf, [(pw, pw), (ph, ph), (pd, pd)],
-                             mode='constant', constant_values=0)
 
         (w, h, d) = image.shape
-        
-        # ==========================================
-        # 2. FOREGROUND-AWARE CROP (50% Πιθανότητα)
-        # ==========================================
+
         if np.random.uniform() < 0.5:
-            # Βρίσκει όλες τις συντεταγμένες που έχουν πάγκρεας
-            pancreas_pixels = np.where(label == 1)
-            
-            # Αν υπάρχει πάγκρεας στην εικόνα
-            if len(pancreas_pixels[0]) > 0:
-                # Διαλέγει ένα τυχαίο pixel του παγκρέατος ως "κέντρο"
-                rand_idx = np.random.randint(0, len(pancreas_pixels[0]))
-                center_w = pancreas_pixels[0][rand_idx]
-                center_h = pancreas_pixels[1][rand_idx]
-                center_d = pancreas_pixels[2][rand_idx]
-                
-                # Υπολογίζει το ξεκίνημα του crop (φροντίζοντας να μην βγει εκτός ορίων)
+            # Foreground-aware crop: centre the patch on a random pancreas voxel.
+            pancreas_voxels = np.where(label == 1)
+
+            if len(pancreas_voxels[0]) > 0:
+                rand_idx = np.random.randint(0, len(pancreas_voxels[0]))
+                center_w = pancreas_voxels[0][rand_idx]
+                center_h = pancreas_voxels[1][rand_idx]
+                center_d = pancreas_voxels[2][rand_idx]
+
+                # Clamp the start so that the patch stays inside the volume.
                 w1 = max(0, min(w - self.output_size[0], center_w - self.output_size[0] // 2))
                 h1 = max(0, min(h - self.output_size[1], center_h - self.output_size[1] // 2))
                 d1 = max(0, min(d - self.output_size[2], center_d - self.output_size[2] // 2))
             else:
-                # Fallback: Αν, όλως περιέργως, δεν έχει πάγκρεας η εικόνα, ρίξε τυχαία με ασφάλεια
+                # No pancreas in the volume: fall back to a random crop.
                 w1 = np.random.randint(0, max(1, w - self.output_size[0] + 1))
                 h1 = np.random.randint(0, max(1, h - self.output_size[1] + 1))
                 d1 = np.random.randint(0, max(1, d - self.output_size[2] + 1))
         else:
-            # ==========================================
-            # 3. PURE RANDOM CROP (50% Πιθανότητα)
-            # ==========================================
-            # Με δικλείδα ασφαλείας max(1, ...) για να αποφύγουμε ValueError αν το w == output_size
+            # Random crop anywhere in the volume (max(1, ...) avoids an empty range when w == output_size).
             w1 = np.random.randint(0, max(1, w - self.output_size[0] + 1))
             h1 = np.random.randint(0, max(1, h - self.output_size[1] + 1))
             d1 = np.random.randint(0, max(1, d - self.output_size[2] + 1))
 
-        # 4. Εφαρμογή του crop στα δεδομένα
-        label = label[w1:w1 + self.output_size[0], 
-                      h1:h1 + self.output_size[1], 
+        label = label[w1:w1 + self.output_size[0],
+                      h1:h1 + self.output_size[1],
                       d1:d1 + self.output_size[2]]
-                      
-        image = image[w1:w1 + self.output_size[0], 
-                      h1:h1 + self.output_size[1], 
+
+        image = image[w1:w1 + self.output_size[0],
+                      h1:h1 + self.output_size[1],
                       d1:d1 + self.output_size[2]]
-                      
-        if self.with_sdf:
-            sdf = sdf[w1:w1 + self.output_size[0], 
-                      h1:h1 + self.output_size[1], 
-                      d1:d1 + self.output_size[2]]
-            return {'image': image, 'label': label, 'sdf': sdf}
-        else:
-            return {'image': image, 'label': label}
+
+        return {'image': image, 'label': label}
+
 
 class RandomRotFlip(object):
+    """Random rotation by a multiple of 90 degrees in the first two axes, then a random flip."""
+
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
         k = np.random.randint(0, 4)
@@ -189,46 +123,23 @@ class RandomRotFlip(object):
         return {'image': image, 'label': label}
 
 
-class RandomNoise(object):
-    def __init__(self, mu=0, sigma=0.1):
-        self.mu = mu
-        self.sigma = sigma
-
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
-        noise = np.clip(self.sigma * np.random.randn(
-            image.shape[0], image.shape[1], image.shape[2]), -2*self.sigma, 2*self.sigma)
-        noise = noise + self.mu
-        image = image + noise
-        return {'image': image, 'label': label}
-
-
-class CreateOnehotLabel(object):
-    def __init__(self, num_classes):
-        self.num_classes = num_classes
-
-    def __call__(self, sample):
-        image, label = sample['image'], sample['label']
-        onehot_label = np.zeros(
-            (self.num_classes, label.shape[0], label.shape[1], label.shape[2]), dtype=np.float32)
-        for i in range(self.num_classes):
-            onehot_label[i, :, :, :] = (label == i).astype(np.float32)
-        return {'image': image, 'label': label, 'onehot_label': onehot_label}
-
-
 class ToTensor(object):
+    """Add the channel axis to the image and convert both arrays to tensors."""
+
     def __call__(self, sample):
         image = sample['image']
         image = image.reshape(
             1, image.shape[0], image.shape[1], image.shape[2]).astype(np.float32)
-        if 'onehot_label' in sample:
-            return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long(),
-                    'onehot_label': torch.from_numpy(sample['onehot_label']).long()}
-        else:
-            return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long()}
+        return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long()}
 
 
 class TwoStreamBatchSampler(Sampler):
+    """
+    Batches made of `batch_size - secondary_batch_size` labeled indices and
+    `secondary_batch_size` unlabeled ones. One epoch is one pass over the
+    labeled indices; the unlabeled ones are cycled through indefinitely.
+    """
+
     def __init__(self, primary_indices, secondary_indices, batch_size, secondary_batch_size):
         self.primary_indices = primary_indices
         self.secondary_indices = secondary_indices

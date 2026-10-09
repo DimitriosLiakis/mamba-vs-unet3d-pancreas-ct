@@ -1,3 +1,9 @@
+# Adapted from Swin-UMamba (https://github.com/JiarunLiu/Swin-UMamba),
+# swin_umamba/nnunetv2/nets/SwinUMamba.py, licensed under the Apache License 2.0
+# (see LICENSES/Apache-2.0.txt). The SS2D / VSS blocks come from VMamba
+# (https://github.com/MzeroMiko/VMamba).
+# Modified by Dimitrios Liakis (2026): optional mamba-ssm and lazy nnunetv2 imports,
+# and VMamba checkpoint loading that skips missing or mismatched keys.
 
 import re
 import time
@@ -15,7 +21,7 @@ from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
 except ImportError:
-    print("[WARNING] mamba_ssm not found. Install with: pip install mamba-ssm")
+    # Only Swin-UMamba needs mamba-ssm; the 3D U-Net path works without it.
     selective_scan_fn = None
     selective_scan_ref = None
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
@@ -157,8 +163,10 @@ class SS2D(nn.Module):
         self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
         self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
 
-        # Use CUDA-optimized kernel if available, else fall back to pure-PyTorch reference
-        self.selective_scan = selective_scan_fn if selective_scan_fn is not None else selective_scan_ref
+        # The selective scan runs on the CUDA kernel from mamba-ssm.
+        if selective_scan_fn is None:
+            raise ImportError("Swin-UMamba needs the mamba-ssm package: pip install mamba-ssm --no-build-isolation")
+        self.selective_scan = selective_scan_fn
 
         self.out_norm = nn.LayerNorm(self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)

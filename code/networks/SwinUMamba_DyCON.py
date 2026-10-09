@@ -212,13 +212,13 @@ if __name__ == "__main__":
         chunk_size=8,
     ).to(device)
 
-    # Simulate PancreasCT patch: (B=2, C=1, H=112, W=112, D=96)
-    x = torch.randn(2, 1, 112, 112, 96).to(device)
+    # PancreasCT training patch used in the thesis: (B=2, C=1, H=64, W=64, D=64)
+    x = torch.randn(2, 1, 64, 64, 64).to(device)
     
     sdf_out, seg_out, features = model(x)
-    print(f"output_sdf: {sdf_out.shape}")   # Expected: (2, 2, 112, 112, 96)
-    print(f"out_seg:    {seg_out.shape}")     # Expected: (2, 2, 112, 112, 96)
-    print(f"features:   {features.shape}")    # Expected: (2, 256, 14, 14, 12)
+    print(f"output_sdf: {sdf_out.shape}")   # Expected: (2, 2, 64, 64, 64)
+    print(f"out_seg:    {seg_out.shape}")     # Expected: (2, 2, 64, 64, 64)
+    print(f"features:   {features.shape}")    # Expected: (2, 256, 8, 8, 8)
     
     total_params = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Total params: {total_params:.2f}M")
