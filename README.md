@@ -363,7 +363,7 @@ To cite the thesis:
 ## Author
 
 **Dimitrios Liakis** · [LinkedIn](https://www.linkedin.com/in/dimitris-liakis-303886277/) ·
-[el20846@mail.ntua.gr](mailto:el20846@mail.ntua.gr)
+[dimliakis2001@gmail.com](mailto:dimliakis2001@gmail.com)
 
 ## License
 
