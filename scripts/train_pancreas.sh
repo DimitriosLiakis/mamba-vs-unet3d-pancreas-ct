@@ -7,6 +7,7 @@
 #   bash ../scripts/train_pancreas.sh                                            # Swin-UMamba + DyCON, 12 labels
 #   MODEL=unet_3D bash ../scripts/train_pancreas.sh                              # 3D U-Net + DyCON, 12 labels
 #   LABELNUM=62 LABELED_BS=2 MAX_ITERS=10000 bash ../scripts/train_pancreas.sh   # fully supervised baseline
+#   USE_PRETRAIN=1 bash ../scripts/train_pancreas.sh                             # Swin-UMamba with VMamba weights
 #
 # Resume an interrupted run with LOAD_PATH=../models/<exp>/<run>/latest_model.pth
 set -euo pipefail
@@ -15,7 +16,7 @@ MODEL="${MODEL:-swin_umamba}"        # swin_umamba | unet_3D
 LABELNUM="${LABELNUM:-12}"           # labeled scans: the first N entries of train.list
 LABELED_BS="${LABELED_BS:-1}"        # 2 (= batch size) trains on labeled scans only
 MAX_ITERS="${MAX_ITERS:-20000}"
-USE_PRETRAIN="${USE_PRETRAIN:-1}"    # Swin-UMamba only: VMamba-tiny ImageNet encoder weights
+USE_PRETRAIN="${USE_PRETRAIN:-0}"    # Swin-UMamba only: 1 = VMamba-tiny ImageNet encoder weights (the thesis runs used 0)
 LOAD_PATH="${LOAD_PATH:-}"
 
 if [ "$LABELED_BS" -ge 2 ]; then
