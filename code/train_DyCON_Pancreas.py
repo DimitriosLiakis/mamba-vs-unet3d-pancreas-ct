@@ -7,8 +7,8 @@ Setting --labeled_bs equal to --batch_size trains on the labeled scans only.
 
 The defaults are the thesis configuration for a single 16 GB GPU: 64^3 patches,
 1 labeled + 1 unlabeled scan per step, gradient accumulation over 4 steps,
-AdamW at 1e-4 and 20k iterations. The reported Swin-UMamba runs started from random
-weights; --use_pretrain 1 initializes the encoder from VMamba-tiny ImageNet weights.
+AdamW at 1e-4 and 20k iterations. --use_pretrain 1 initializes the Swin-UMamba encoder
+from VMamba-tiny ImageNet weights (scripts/train_pancreas.sh turns it on by default).
 
 Run from the code/ directory:
     python train_DyCON_Pancreas.py --model unet_3D

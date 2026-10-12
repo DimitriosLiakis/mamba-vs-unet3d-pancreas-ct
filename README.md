@@ -84,7 +84,10 @@ drawn manually and checked by a radiologist. I used the preprocessed `.h5` volum
 | Works in | 2D: the 64³ patch is split into 64 slices, run in chunks of 8, then stacked back into 3D | 3D |
 | Contrastive features | Bottleneck features stacked to 3D, resized and projected to 256-d | Bottleneck features projected to 256-d |
 | Parameters | 60.4M | 6.2M |
-| Encoder initialization | random in the reported runs; VMamba-tiny ImageNet weights are available with `--use_pretrain 1` | random |
+| Encoder initialization | VMamba-tiny ImageNet weights (`--use_pretrain 1`), as described in the thesis¹ | random |
+
+¹ Swin-UMamba was trained both with and without the VMamba initialization. Not all run files survive, so the
+remaining records do not show which of the two produced the reported numbers.
 
 ### Post-processing: Largest Connected Component
 
@@ -163,6 +166,7 @@ checkpoint. The checkpoints themselves (about 1 GB each) are not included.
   - **Small slices:** a 64×64 slice shrinks to a 2×2 grid in the deepest Mamba stage.
   - **No 3D context:** the 2D wrapper never sees neighbouring slices, while the U-Net convolves in 3D.
   - **Capacity vs. data:** Swin-UMamba has 10× the parameters to fit from few labels.
+  - **Domain gap (with VMamba initialization):** the encoder weights come from 2D natural images, not 3D CT.
 - **The results describe a low-resolution regime.** The thesis's own conclusion is that the comparison could flip
   with larger patches and more memory.
 
@@ -267,7 +271,7 @@ pip install -r requirements.txt
 pip install mamba-ssm causal-conv1d --no-build-isolation   # Swin-UMamba only; may compile CUDA kernels
 ```
 
-VMamba-tiny ImageNet weights, needed only for `USE_PRETRAIN=1` (Swin-UMamba):
+VMamba-tiny ImageNet weights for the Swin-UMamba encoder (skip them with `USE_PRETRAIN=0`):
 
 ```bash
 mkdir -p code/data/pretrained/vmamba
@@ -298,7 +302,7 @@ cd code
 bash ../scripts/train_pancreas.sh                                           # Swin-UMamba + DyCON, 12-label setting
 MODEL=unet_3D bash ../scripts/train_pancreas.sh                             # 3D U-Net + DyCON
 LABELNUM=62 LABELED_BS=2 MAX_ITERS=10000 bash ../scripts/train_pancreas.sh  # fully supervised baseline
-USE_PRETRAIN=1 bash ../scripts/train_pancreas.sh                            # Swin-UMamba with VMamba weights
+USE_PRETRAIN=0 bash ../scripts/train_pancreas.sh                            # Swin-UMamba from random weights
 LOAD_PATH=../models/<exp>/<run>/latest_model.pth bash ../scripts/train_pancreas.sh   # resume a run
 
 # Evaluation, raw vs. LCC
