@@ -10,6 +10,13 @@ The defaults are the thesis configuration for a single 16 GB GPU: 64^3 patches,
 AdamW at 1e-4 and 20k iterations. --use_pretrain 1 initializes the Swin-UMamba encoder
 from VMamba-tiny ImageNet weights (scripts/train_pancreas.sh turns it on by default).
 
+The data defaults are the v2 protocol, where no step reads the masks of the unlabeled
+scans or of the test scans:
+    --train_list train_v2.list (0001-0054)   --val_list val.list (0055-0062)
+    --fecl_mask teacher                      --hide_unlabeled_labels 1
+The thesis runs used train.list (0001-0062), test1.list (0001-0020, inside train.list),
+--fecl_mask gt and --hide_unlabeled_labels 0 (see "What the numbers mean" in the README).
+
 Run from the code/ directory:
     python train_DyCON_Pancreas.py --model unet_3D
 """
@@ -45,8 +52,10 @@ parser = argparse.ArgumentParser(description="Train DyCON (semi-supervised) or a
 
 # Data and experiment
 parser.add_argument('--root_dir', type=str, default="../data/Pancreas", help='Folder with train.list and Pancreas_data/*.h5')
-parser.add_argument('--val_list', type=str, default='test1.list',
-                    help='Scans used to select the best checkpoint. The thesis runs used test1.list, which overlaps train.list (see README)')
+parser.add_argument('--train_list', type=str, default='train_v2.list',
+                    help='Training scans, of which the first --labelnum are labeled. The thesis runs used train.list')
+parser.add_argument('--val_list', type=str, default='val.list',
+                    help='Labeled scans used to select the best checkpoint. The thesis runs used test1.list, which overlaps train.list (see README)')
 parser.add_argument('--exp', type=str, default='PancreasCT', help='Experiment name (output folder under ../models)')
 parser.add_argument('--patch_size', type=int, nargs=3, default=[64, 64, 64], help='Training patch size')
 parser.add_argument('--gpu_id', type=str, default='0', help='GPU to use')
@@ -67,7 +76,7 @@ parser.add_argument('--pretrained_ckpt', type=str, default='./data/pretrained/vm
 parser.add_argument('--max_iterations', type=int, default=20000, help='Number of training iterations')
 parser.add_argument('--batch_size', type=int, default=2, help='Scans per step (labeled + unlabeled)')
 parser.add_argument('--labeled_bs', type=int, default=1, help='Labeled scans per step; equal to --batch_size gives fully supervised training')
-parser.add_argument('--labelnum', type=int, default=12, help='Number of labeled scans (the first N entries of train.list)')
+parser.add_argument('--labelnum', type=int, default=12, help='Number of labeled scans (the first N entries of --train_list)')
 parser.add_argument('--optimizer', type=str, default='adamw', choices=['sgd', 'adamw'])
 parser.add_argument('--base_lr', type=float, default=1e-4, help='Base learning rate')
 parser.add_argument('--warmup_epochs', type=int, default=100, help='Linear warm-up epochs before cosine decay')
@@ -91,8 +100,15 @@ parser.add_argument('--l_weight', type=float, default=1.0, help='Weight of the s
 parser.add_argument('--u_weight', type=float, default=0.5, help='Weight of UnCL + FeCL')
 parser.add_argument('--use_focal', type=int, default=1, help='FeCL focal weighting')
 parser.add_argument('--use_teacher_loss', type=int, default=1, help='FeCL: also contrast against teacher features')
+parser.add_argument('--fecl_mask', type=str, default='teacher', choices=['teacher', 'gt'],
+                    help="FeCL class mask of the unlabeled scans: teacher pseudo-labels, or their ground-truth masks ('gt', as in the thesis runs)")
+parser.add_argument('--hide_unlabeled_labels', type=int, default=1,
+                    help='Give the unlabeled scans all-zero labels in the data loader (0 reproduces the thesis runs)')
 
 args = parser.parse_args()
+
+if args.fecl_mask == 'gt' and args.hide_unlabeled_labels:
+    parser.error("--fecl_mask gt reads the masks of the unlabeled scans. Use it with --hide_unlabeled_labels 0")
 
 if args.s_beta is not None:
     beta_str = f"_beta{args.s_beta}"
@@ -106,7 +122,7 @@ teacher_str = "Teacher" if bool(args.use_teacher_loss) else "NoTeacher"
 snapshot_path = (
     f"../models/{args.exp}/{args.model.upper()}_{args.labelnum}labels_"
     f"{args.consistency_type}{gamma_str}_{focal_str}_{teacher_str}_temp{args.temp}"
-    f"{beta_str}_max_iterations{args.max_iterations}"
+    f"{beta_str}_max_iterations{args.max_iterations}_seed{args.seed}"
 )
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu_id)
@@ -140,6 +156,12 @@ def update_ema_variables(model, ema_model, alpha, global_step):
     alpha = min(1 - 1 / (global_step + 1), alpha)
     for ema_param, param in zip(ema_model.parameters(), model.parameters()):
         ema_param.data.mul_(alpha).add_(param.data, alpha=1 - alpha)
+
+
+def save_checkpoint(state, path):
+    """Write to a temporary file first, so a session killed mid-save never leaves a truncated checkpoint."""
+    torch.save(state, path + '.tmp')
+    os.replace(path + '.tmp', path)
 
 
 def cleanup_checkpoints(snapshot_path, keep_top_n=5):
@@ -202,6 +224,9 @@ if __name__ == "__main__":
 
     db_train = Pancreas(base_dir=args.root_dir,
                         split='train',
+                        list_name=args.train_list,
+                        labeled_num=args.labelnum,
+                        hide_unlabeled_labels=bool(args.hide_unlabeled_labels),
                         transform=T.Compose([
                             RandomCrop(patch_size),
                             RandomRotFlip(),
@@ -209,6 +234,8 @@ if __name__ == "__main__":
                         ]))
 
     labelnum = args.labelnum
+    if labelnum > len(db_train):
+        raise ValueError(f"--labelnum {labelnum} is larger than {args.train_list} ({len(db_train)} scans)")
     labeled_idxs = list(range(labelnum))
     unlabeled_idxs = list(range(labelnum, db_train.__len__()))
 
@@ -273,10 +300,12 @@ if __name__ == "__main__":
     if args.load_path and os.path.exists(args.load_path):
         logging.info(f'Loading checkpoint: {args.load_path}')
         checkpoint = torch.load(args.load_path, map_location='cuda:0', weights_only=False)
+        ema_loaded = False
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
             if 'ema_model_state_dict' in checkpoint:
                 ema_model.load_state_dict(checkpoint['ema_model_state_dict'])
+                ema_loaded = True
             if 'optimizer_state_dict' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             if 'scheduler_state_dict' in checkpoint:
@@ -290,8 +319,11 @@ if __name__ == "__main__":
         else:
             model.load_state_dict(checkpoint)
 
-        for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-            ema_param.data.copy_(param.data)
+        # Start the teacher from the student only if the checkpoint has no teacher. The thesis
+        # code always copied the student here, which reset the teacher at every resumed session.
+        if not ema_loaded:
+            for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+                ema_param.data.copy_(param.data)
 
     model.train()
     ema_model.train()
@@ -354,15 +386,11 @@ if __name__ == "__main__":
                 ema_embedding = torch.transpose(ema_embedding, 1, 2)
                 ema_embedding = F.normalize(ema_embedding, dim=-1)
 
-                # Labels downsampled to the resolution of the contrastive features.
-                # As in the upstream DyCON code, this uses label_batch for the whole batch, so
-                # FeCL on the unlabeled half sees the ground-truth masks of those scans
-                # (see "What the numbers mean" in the README).
-                mask_con = F.interpolate(label_batch.unsqueeze(1).float(), scale_factor=1/(args.feature_scaler * 4),
-                                         mode='trilinear', align_corners=False).squeeze(1)
-                mask_con = (mask_con > 0.5).float()
-                mask_con = mask_con.reshape(B, -1)
-                mask_con = mask_con.unsqueeze(1)
+                # Class mask at the resolution of the contrastive features. With --fecl_mask gt
+                # (upstream DyCON, the thesis runs) FeCL on the unlabeled half sees the ground-truth
+                # masks of those scans. With teacher it uses the teacher's pseudo-labels.
+                mask_con = dycon_losses.build_fecl_mask(label_batch, ema_probs, labeled_bs,
+                                                        scale=1/(args.feature_scaler * 4), source=args.fecl_mask)
 
                 # Unsupervised terms (FeCL, UnCL, consistency) apply only to unlabeled scans.
                 if batch_size == labeled_bs:
@@ -402,9 +430,10 @@ if __name__ == "__main__":
 
             iter_num = iter_num + 1
 
+            # Training Dice on the labeled scans only (the unlabeled ones may have hidden labels).
             with torch.no_grad():
-                outputs_bin = (stud_probs[:, 1, :, :, :] > 0.5).float()
-                dice_score = metrics.compute_dice(outputs_bin, label_batch)
+                outputs_bin = (stud_probs[:labeled_bs, 1, :, :, :] > 0.5).float()
+                dice_score = metrics.compute_dice(outputs_bin, label_batch[:labeled_bs])
 
             current_loss = (loss * args.accumulation_steps).item()
             current_dice = dice_score.mean().item()
@@ -427,8 +456,8 @@ if __name__ == "__main__":
                     state = {'iter_num': iter_num, 'model_state_dict': model.state_dict(), 'ema_model_state_dict': ema_model.state_dict(),
                              'optimizer_state_dict': optimizer.state_dict(), 'scheduler_state_dict': scheduler.state_dict(),
                              'best_performance': best_performance}
-                    torch.save(state, save_mode_path)
-                    torch.save(state, save_best)
+                    save_checkpoint(state, save_mode_path)
+                    save_checkpoint(state, save_best)
                     cleanup_checkpoints(snapshot_path, keep_top_n=args.keep_top_k)
                 logging.info('Iteration %d : Dice: %03f Best_dice: %03f' % (iter_num, avg_metric, best_performance))
                 model.train()
@@ -436,9 +465,9 @@ if __name__ == "__main__":
             # Every 100 iterations: full-state checkpoint for resuming.
             if iter_num > 0 and iter_num % 100 == 0:
                 save_latest_path = os.path.join(snapshot_path, 'latest_model.pth')
-                torch.save({'iter_num': iter_num, 'model_state_dict': model.state_dict(), 'ema_model_state_dict': ema_model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(), 'scheduler_state_dict': scheduler.state_dict(),
-                            'best_performance': best_performance}, save_latest_path)
+                save_checkpoint({'iter_num': iter_num, 'model_state_dict': model.state_dict(), 'ema_model_state_dict': ema_model.state_dict(),
+                                 'optimizer_state_dict': optimizer.state_dict(), 'scheduler_state_dict': scheduler.state_dict(),
+                                 'best_performance': best_performance}, save_latest_path)
 
             if iter_num >= max_iterations:
                 break

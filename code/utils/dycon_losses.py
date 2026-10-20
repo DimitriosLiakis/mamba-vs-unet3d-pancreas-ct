@@ -11,6 +11,35 @@ def adaptive_beta(epoch, total_epochs, max_beta=5.0, min_beta=0.5):
     beta = max_beta * (ratio ** exponent)
     return beta
     
+def build_fecl_mask(label_batch, ema_probs, labeled_bs, scale, source='teacher'):
+    """
+    Class mask for FeCL at the resolution of the contrastive features.
+
+    Args:
+        label_batch (Tensor): (B, W, H, D) labels of the batch. The first `labeled_bs` scans are labeled.
+        ema_probs (Tensor): (B, C, W, H, D) teacher softmax probabilities.
+        labeled_bs (int): Number of labeled scans at the start of the batch.
+        scale (float): Downsampling factor to the feature grid, 1 / (4 * feature_scaler).
+        source (str): 'gt' builds the mask of the whole batch from `label_batch`, as the upstream
+            DyCON code and the thesis runs did, so FeCL on the unlabeled scans sees their
+            ground-truth masks. 'teacher' uses the teacher's foreground probability for the
+            unlabeled scans and the labels only for the labeled ones.
+
+    Returns:
+        Tensor: (B, 1, N) binary mask, N the number of feature voxels.
+    """
+    if source == 'gt':
+        mask = label_batch.unsqueeze(1).float()
+    elif source == 'teacher':
+        mask = torch.cat([label_batch[:labeled_bs].unsqueeze(1).float(),
+                          ema_probs[labeled_bs:, 1:2].detach().float()], dim=0)
+    else:
+        raise ValueError(f"Unknown FeCL mask source: {source}")
+    mask = F.interpolate(mask, scale_factor=scale, mode='trilinear', align_corners=False).squeeze(1)
+    mask = (mask > 0.5).float()
+    return mask.reshape(mask.shape[0], -1).unsqueeze(1)
+
+
 def gambling_softmax(logits):
     """
     Compute gambling softmax probabilities over the channel dimension.

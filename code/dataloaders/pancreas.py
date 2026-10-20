@@ -9,22 +9,25 @@ from torch.utils.data.sampler import Sampler
 
 
 class Pancreas(Dataset):
-    """Volumes listed in train.list (split='train') or test.list (split='test' or 'val')."""
+    """Volumes listed in `list_name`, by default train.list (split='train') or test.list (split='test' or 'val').
 
-    def __init__(self, base_dir=None, split='train', num=None, transform=None):
+    With `hide_unlabeled_labels`, every scan after the first `labeled_num` gets an all-zero
+    label, so no part of training can read the masks of the unlabeled scans. RandomCrop then
+    finds no foreground in those scans and always takes a random crop.
+    """
+
+    def __init__(self, base_dir=None, split='train', num=None, transform=None, list_name=None,
+                 labeled_num=None, hide_unlabeled_labels=False):
         self._base_dir = base_dir
         self.transform = transform
         self.sample_list = []
+        self.labeled_num = labeled_num
+        self.hide_unlabeled_labels = hide_unlabeled_labels
 
-        train_path = self._base_dir+'/train.list'
-        test_path = self._base_dir+'/test.list'
-
-        if split == 'train':
-            with open(train_path, 'r') as f:
-                self.image_list = f.readlines()
-        elif split == 'test' or split == 'val':
-            with open(test_path, 'r') as f:
-                self.image_list = f.readlines()
+        if list_name is None:
+            list_name = 'train.list' if split == 'train' else 'test.list'
+        with open(self._base_dir + '/' + list_name, 'r') as f:
+            self.image_list = f.readlines()
 
         self.image_list = [item.replace('\n', '') for item in self.image_list]
         if num is not None:
@@ -38,8 +41,10 @@ class Pancreas(Dataset):
         image_name = self.image_list[idx]
         h5f = h5py.File(self._base_dir + "/Pancreas_data/{}".format(image_name), 'r')
         image = h5f['image'][:]
-        label = h5f['label'][:]
-        sample = {'image': image, 'label': label.astype(np.uint8)}
+        label = h5f['label'][:].astype(np.uint8)
+        if self.hide_unlabeled_labels and self.labeled_num is not None and idx >= self.labeled_num:
+            label = np.zeros_like(label)
+        sample = {'image': image, 'label': label}
         if self.transform:
             sample = self.transform(sample)
         return sample
@@ -50,6 +55,10 @@ class RandomCrop(object):
     Random crop of `output_size`. With probability 0.5 the crop is centred on a
     random pancreas voxel, so that small patches still contain the organ
     (it occupies a tiny fraction of an abdominal CT volume).
+
+    The centring reads the label, so it should only happen for labeled scans. In the
+    thesis runs it also happened for the unlabeled ones. With the labels of unlabeled
+    scans hidden (Pancreas(hide_unlabeled_labels=True)) they always get a random crop.
     """
 
     def __init__(self, output_size):
