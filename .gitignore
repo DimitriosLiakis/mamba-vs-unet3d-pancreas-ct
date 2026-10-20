@@ -1,5 +1,5 @@
 # Data: only the split lists are versioned
-data/**/Pancreas_data/
+data/**/Pancreas_data
 *.h5
 *.nii
 *.nii.gz
@@ -15,6 +15,7 @@ models/
 code/data/pretrained/
 predictions/
 *.csv
+!results/**/*.csv
 
 # Python
 __pycache__/

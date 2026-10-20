@@ -17,3 +17,4 @@ scikit-image>=0.21
 h5py
 nibabel
 tqdm
+scipy                # compare_runs.py: paired Wilcoxon tests
