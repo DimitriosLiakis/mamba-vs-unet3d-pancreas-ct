@@ -7,9 +7,10 @@
 # then "Save Version". To continue the run in a new session, add that version's output as input and set
 #   RESUME_FROM=/kaggle/input/<that version>/repo/models
 #
-# Training stops after HOURS, before Kaggle's 12-hour limit, so the version and its checkpoints are
-# saved. Once the run reaches its last iteration, its best checkpoint is evaluated on test.list and
-# the per-case metrics go to repo/results/v2/.
+# Training stops SESSION_HOURS after the script starts, setup included, so the session ends before
+# Kaggle's 12-hour limit and the version and its checkpoints are saved. Once the run reaches its last
+# iteration, its best checkpoint is evaluated on test.list and the per-case metrics go to
+# repo/results/v2/.
 #
 # Variables, with defaults:
 #   MODEL=swin_umamba   SETTING=dycon (dycon | sup12 | full)   SEED=1337   PROTOCOL=v2   MAX_ITERS=20000
@@ -17,7 +18,7 @@
 #   WHEELS_DIR=      saved causal-conv1d / mamba-ssm wheels. Without it they are built (slow) into
 #                    /kaggle/working/wheels. Add that folder as a dataset to skip the build next time.
 #   RESUME_FROM=     models/ folder of an earlier session of this run
-#   HOURS=10.5       training time for this session
+#   SESSION_HOURS=11.25   time budget of this session from the start of the script, setup included
 #   EVALUATE=1       evaluate on test.list once training has finished
 #   DRY_RUN=0        1 prints the commands without running them
 set -euo pipefail
@@ -31,7 +32,7 @@ MAX_ITERS="${MAX_ITERS:-20000}"
 DATA_DIR="${DATA_DIR:-/kaggle/input/datasets/jimliakis/pancreas-data}"
 WHEELS_DIR="${WHEELS_DIR:-}"
 RESUME_FROM="${RESUME_FROM:-}"
-HOURS="${HOURS:-10.5}"
+SESSION_HOURS="${SESSION_HOURS:-11.25}"
 EVALUATE="${EVALUATE:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -95,8 +96,15 @@ fi
 
 # 4. Train until the run ends or the session time is up
 if [ "$finished" != "1" ]; then
+    # Bash's SECONDS counts from the start of this script, so the setup time is subtracted.
+    train_seconds=$(awk -v h="$SESSION_HOURS" -v s="$SECONDS" 'BEGIN { print int(h * 3600 - s) }')
+    if [ "$train_seconds" -lt 600 ]; then
+        echo "Less than 10 minutes of the session budget left after setup. Start a new session." >&2
+        exit 1
+    fi
+    echo "Training for at most $((train_seconds / 60)) minutes in this session."
     set +e
-    run timeout "${HOURS}h" env MODEL="$MODEL" SETTING="$SETTING" SEED="$SEED" PROTOCOL="$PROTOCOL" \
+    run timeout "${train_seconds}s" env MODEL="$MODEL" SETTING="$SETTING" SEED="$SEED" PROTOCOL="$PROTOCOL" \
         MAX_ITERS="$MAX_ITERS" KEEP_TOP_K=2 LOAD_PATH="$load_path" bash ../scripts/train_pancreas.sh
     status=$?
     set -e
