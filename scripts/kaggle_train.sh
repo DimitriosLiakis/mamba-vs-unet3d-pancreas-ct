@@ -15,6 +15,7 @@
 # Variables, with defaults:
 #   MODEL=swin_umamba   SETTING=dycon (dycon | sup12 | full)   SEED=1337   PROTOCOL=v2   MAX_ITERS=20000
 #   DATA_DIR=/kaggle/input/datasets/jimliakis/pancreas-data    folder with the PANCREAS_*.h5 volumes
+#   LOCAL_DATA=/tmp/pancreas_data   local copy of the volumes that training reads
 #   WHEELS_DIR=      saved causal-conv1d / mamba-ssm wheels. Without it they are built (slow) into
 #                    /kaggle/working/wheels. Add that folder as a dataset to skip the build next time.
 #   RESUME_FROM=     models/ folder of an earlier session of this run
@@ -30,6 +31,7 @@ SEED="${SEED:-1337}"
 PROTOCOL="${PROTOCOL:-v2}"
 MAX_ITERS="${MAX_ITERS:-20000}"
 DATA_DIR="${DATA_DIR:-/kaggle/input/datasets/jimliakis/pancreas-data}"
+LOCAL_DATA="${LOCAL_DATA:-/tmp/pancreas_data}"
 WHEELS_DIR="${WHEELS_DIR:-}"
 RESUME_FROM="${RESUME_FROM:-}"
 SESSION_HOURS="${SESSION_HOURS:-11.25}"
@@ -59,9 +61,18 @@ if [ "$MODEL" = "swin_umamba" ]; then
 fi
 run python -c "import torch, numpy; print('torch', torch.__version__, '| CUDA', torch.cuda.is_available(), '| numpy', numpy.__version__)"
 
-# 2. Data and VMamba weights
-run mkdir -p "$REPO/data/Pancreas/Pancreas_data"
-run find "$DATA_DIR" -maxdepth 2 -name '*.h5' -exec ln -sf {} "$REPO/data/Pancreas/Pancreas_data/" \;
+# 2. Machine, data and VMamba weights
+run nproc
+run free -g
+run nvidia-smi --query-gpu=name,memory.total,clocks.max.sm --format=csv,noheader
+
+# Copy the volumes to local disk once. In a committed session, training read them from
+# /kaggle/input and stalled for up to two minutes at a time.
+copy_start=$SECONDS
+run mkdir -p "$LOCAL_DATA" "$REPO/data/Pancreas/Pancreas_data"
+run find "$DATA_DIR" -maxdepth 2 -name '*.h5' -exec cp {} "$LOCAL_DATA/" \;
+echo "Copied the volumes to $LOCAL_DATA in $((SECONDS - copy_start)) s."
+run find "$LOCAL_DATA" -maxdepth 1 -name '*.h5' -exec ln -sf {} "$REPO/data/Pancreas/Pancreas_data/" \;
 if [ "$DRY_RUN" != "1" ]; then
     n=$(find "$REPO/data/Pancreas/Pancreas_data" -name '*.h5' | wc -l)
     if [ "$n" -lt 82 ]; then
