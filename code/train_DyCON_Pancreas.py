@@ -69,6 +69,8 @@ parser.add_argument('--num_classes', type=int, default=2, help='Number of segmen
 parser.add_argument('--feature_scaler', type=int, default=2,
                     help='Contrastive features are computed at 1/(4*feature_scaler) of the patch resolution')
 parser.add_argument('--chunk_size', type=int, default=8, help='Swin-UMamba: 2D slices per forward chunk (lower uses less memory)')
+parser.add_argument('--use_checkpoint', type=int, default=0,
+                    help='Swin-UMamba: recompute each chunk in the backward pass (same results, less GPU memory, slower)')
 parser.add_argument('--use_pretrain', type=int, default=0, help='Swin-UMamba: initialize the encoder from VMamba-tiny ImageNet weights')
 parser.add_argument('--pretrained_ckpt', type=str, default='./data/pretrained/vmamba/vmamba_tiny_e292.pth', help='Path to the VMamba weights')
 
@@ -205,7 +207,8 @@ if __name__ == "__main__":
     def create_model(ema=False):
         use_pretrain = bool(args.use_pretrain) if args.model == 'swin_umamba' else False
         net = net_factory_3d(net_type=args.model, in_chns=args.in_ch, class_num=num_classes, scaler=args.feature_scaler,
-                             chunk_size=args.chunk_size, use_pretrain=use_pretrain, pretrained_ckpt=args.pretrained_ckpt)
+                             chunk_size=args.chunk_size, use_pretrain=use_pretrain, pretrained_ckpt=args.pretrained_ckpt,
+                             use_checkpoint=bool(args.use_checkpoint))
         model = net.cuda()
         if ema:
             for param in model.parameters():

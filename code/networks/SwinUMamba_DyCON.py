@@ -11,6 +11,7 @@ matching the signature of UNet3D and VNet in this codebase.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .SwinUMamba import SwinUMamba, load_pretrained_ckpt
 
@@ -39,6 +40,7 @@ class SwinUMambaDyCON(nn.Module):
         use_pretrain: bool = False,
         pretrained_ckpt: str = "./data/pretrained/vmamba/vmamba_tiny_e292.pth",
         chunk_size: int = 16,
+        use_checkpoint: bool = False,
     ):
         """
         Args:
@@ -53,10 +55,13 @@ class SwinUMambaDyCON(nn.Module):
             pretrained_ckpt: Path to VMamba pretrained checkpoint.
             chunk_size:   Number of 2D slices to process in parallel per forward chunk.
                           Lower values save GPU memory; higher values are faster.
+            use_checkpoint: Recompute the activations of each chunk in the backward pass
+                          instead of storing them. Same results, far less GPU memory, slower.
         """
         super().__init__()
         self.scale_factor = scale_factor
         self.chunk_size = chunk_size
+        self.use_checkpoint = use_checkpoint
         self.hidden_size = hidden_size
 
         # 2D SwinUMamba backbone (encoder + decoder)
@@ -164,7 +169,11 @@ class SwinUMambaDyCON(nn.Module):
 
         for i in range(0, B * D, self.chunk_size):
             chunk = x_slices[i:i + self.chunk_size]
-            seg_c, feat_c = self._forward_2d(chunk)
+            if self.use_checkpoint and torch.is_grad_enabled():
+                # The random state is restored for the recomputation, so drop path matches.
+                seg_c, feat_c = checkpoint(self._forward_2d, chunk, use_reentrant=False)
+            else:
+                seg_c, feat_c = self._forward_2d(chunk)
             seg_chunks.append(seg_c)
             feat_chunks.append(feat_c)
 

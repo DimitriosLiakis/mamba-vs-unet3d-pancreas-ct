@@ -29,6 +29,8 @@ SEED="${SEED:-1337}"
 MAX_ITERS="${MAX_ITERS:-20000}"
 USE_PRETRAIN="${USE_PRETRAIN:-1}"    # Swin-UMamba only: VMamba-tiny ImageNet encoder weights (0 = random init)
 KEEP_TOP_K="${KEEP_TOP_K:-5}"        # best iter_*.pth checkpoints kept on disk
+USE_CHECKPOINT="${USE_CHECKPOINT:-0}"  # Swin-UMamba: 1 recomputes activations to fit GPUs with less memory
+GPU_ID="${GPU_ID:-0}"
 LOAD_PATH="${LOAD_PATH:-}"
 
 case "$PROTOCOL" in
@@ -66,6 +68,7 @@ python train_DyCON_Pancreas.py \
     --exp "$EXP" \
     --model "$MODEL" \
     --seed "$SEED" \
+    --gpu_id "$GPU_ID" \
     --patch_size 64 64 64 \
     --max_iterations "$MAX_ITERS" \
     --batch_size 2 \
@@ -75,6 +78,7 @@ python train_DyCON_Pancreas.py \
     --optimizer adamw \
     --base_lr 1e-4 \
     --chunk_size 8 \
+    --use_checkpoint "$USE_CHECKPOINT" \
     --feature_scaler 2 \
     --temp 0.6 \
     --u_weight 0.5 \
