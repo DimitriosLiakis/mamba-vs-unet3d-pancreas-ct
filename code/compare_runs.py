@@ -22,9 +22,10 @@ import numpy as np
 from scipy.stats import wilcoxon
 
 MODELS = {'unet_3D': '3D U-Net', 'swin_umamba': 'Swin-UMamba'}
-SETTINGS = {'sup12': '12 labeled only', 'dycon': 'DyCON, 12 labeled', 'full': 'Fully supervised'}
+SETTINGS = {'sup12': '12 labeled only', 'dycon': 'DyCON, 12 labeled', 'dycon40k': 'DyCON, 12 labeled, 40k iterations',
+            'full': 'Fully supervised'}
 METRICS = [('dice', 'Dice (%) ↑'), ('hd95', 'HD95 ↓'), ('asd', 'ASD ↓')]
-FILE_NAME = re.compile(r'^(unet_3D|swin_umamba)_(sup12|dycon|full)_seed(\d+)\.csv$')
+FILE_NAME = re.compile(r'^(unet_3D|swin_umamba)_(sup12|dycon|dycon40k|full)_seed(\d+)\.csv$')
 
 
 def load_runs(results_dir):
@@ -104,7 +105,7 @@ def main():
         for metric, title in METRICS:
             comparisons.append((f"{MODELS[key[0]]}, {SETTINGS[key[1]]}: + LCC vs. raw", title, key, f'lcc_{metric}', key, f'raw_{metric}'))
     for model in MODELS:
-        for a, b in (('dycon', 'sup12'), ('full', 'dycon')):
+        for a, b in (('dycon', 'sup12'), ('dycon40k', 'sup12'), ('dycon40k', 'dycon'), ('full', 'dycon')):
             for stage in ('raw', 'lcc'):
                 comparisons.append((f"{MODELS[model]}: {SETTINGS[a]} vs. {SETTINGS[b]} ({stage})", 'Dice (%) ↑',
                                     (model, a), f'{stage}_dice', (model, b), f'{stage}_dice'))
