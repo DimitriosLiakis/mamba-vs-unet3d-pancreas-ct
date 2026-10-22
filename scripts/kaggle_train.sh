@@ -4,8 +4,8 @@
 # Notebook cells:
 #   !git clone -b v2 https://github.com/DimitriosLiakis/mamba-vs-unet3d-pancreas-ct /kaggle/working/repo
 #   !SETTING=dycon bash /kaggle/working/repo/scripts/kaggle_train.sh
-# then "Save Version". To continue the run in a new session, add that version's output as input and set
-#   RESUME_FROM=/kaggle/input/<that version>/repo/models
+# then "Save Version". To continue the run in a new session, add that version's output as input (Add
+# Input > Your Work) and run the same cells. The checkpoint and the wheels are found under /kaggle/input.
 #
 # Training stops SESSION_HOURS after the script starts, setup included, so the session ends before
 # Kaggle's 12-hour limit and the version and its checkpoints are saved. Once the run reaches its last
@@ -16,9 +16,10 @@
 #   MODEL=swin_umamba   SETTING=dycon (dycon | sup12 | full)   SEED=1337   PROTOCOL=v2   MAX_ITERS=20000
 #   DATA_DIR=/kaggle/input/datasets/jimliakis/pancreas-data    folder with the PANCREAS_*.h5 volumes
 #   LOCAL_DATA=/tmp/pancreas_data   local copy of the volumes that training reads
-#   WHEELS_DIR=      saved causal-conv1d / mamba-ssm wheels. Without it they are built (slow) into
-#                    /kaggle/working/wheels. Add that folder as a dataset to skip the build next time.
-#   RESUME_FROM=     models/ folder of an earlier session of this run
+#   WHEELS_DIR=      saved causal-conv1d / mamba-ssm wheels. If unset, they are looked for under
+#                    /kaggle/input, and built (slow) into /kaggle/working/wheels if none are found.
+#   RESUME_FROM=     models/ folder of an earlier session of this run. If unset, it is looked for under
+#                    /kaggle/input, so attach only the output of the latest version of this run.
 #   SESSION_HOURS=11.25   time budget of this session from the start of the script, setup included
 #   EVALUATE=1       evaluate on test.list once training has finished
 #   DRY_RUN=0        1 prints the commands without running them
@@ -47,6 +48,18 @@ find_run_dir() {
     find "../models/PancreasCT_${PROTOCOL}_${SETTING}" -maxdepth 1 -type d \
         -name "${MODEL^^}_*_max_iterations${MAX_ITERS}_seed${SEED}" 2>/dev/null | head -1 || true
 }
+
+# 0. Outputs of earlier sessions attached as input
+if [ -z "$WHEELS_DIR" ]; then
+    whl=$(find /kaggle/input -maxdepth 7 -name 'mamba_ssm-*.whl' 2>/dev/null | head -1 || true)
+    if [ -n "$whl" ]; then WHEELS_DIR="$(dirname "$whl")"; echo "Wheels found in $WHEELS_DIR"; fi
+fi
+if [ -z "$RESUME_FROM" ]; then
+    latest=$(find /kaggle/input -maxdepth 10 -name latest_model.pth \
+             -path "*/PancreasCT_${PROTOCOL}_${SETTING}/${MODEL^^}_*_max_iterations${MAX_ITERS}_seed${SEED}/*" \
+             2>/dev/null | head -1 || true)
+    if [ -n "$latest" ]; then RESUME_FROM="$(dirname "$(dirname "$(dirname "$latest")")")"; echo "Checkpoints found in $RESUME_FROM"; fi
+fi
 
 # 1. Python packages
 run pip install -q -r "$REPO/requirements.txt"
