@@ -7,6 +7,7 @@
 # Run from the code/ directory, in the pancreas-swin environment:
 #   bash ../scripts/run_local_swin.sh            # until every run is done
 #   HOURS=8 bash ../scripts/run_local_swin.sh    # stop after 8 hours, continue with the same command
+#   SETTINGS=dycon MAX_ITERS=40000 TAG=40k bash ../scripts/run_local_swin.sh   # runs go to PancreasCT_v2_dycon40k
 set -euo pipefail
 
 SEED="${SEED:-1337}"
@@ -14,6 +15,7 @@ SETTINGS="${SETTINGS:-dycon sup12 full}"
 PROTOCOL="${PROTOCOL:-v2}"
 MAX_ITERS="${MAX_ITERS:-20000}"
 HOURS="${HOURS:-}"
+TAG="${TAG:-}"                       # appended to the experiment folder name
 
 VMAMBA=./data/pretrained/vmamba/vmamba_tiny_e292.pth
 if [ ! -f "$VMAMBA" ]; then
@@ -27,7 +29,8 @@ if [ -n "$HOURS" ]; then
 fi
 
 for setting in $SETTINGS; do
-    run_dir=$(find "../models/PancreasCT_${PROTOCOL}_${setting}" -maxdepth 1 -type d \
+    exp="PancreasCT_${PROTOCOL}_${setting}${TAG}"
+    run_dir=$(find "../models/${exp}" -maxdepth 1 -type d \
               -name "SWIN_UMAMBA_*_max_iterations${MAX_ITERS}_seed${SEED}" 2>/dev/null | head -1 || true)
     if [ -n "$run_dir" ] && grep -q "Training finished" "$run_dir/log.txt" 2>/dev/null; then
         echo "Skipping finished run: $run_dir"
@@ -38,7 +41,7 @@ for setting in $SETTINGS; do
         load_path="$run_dir/latest_model.pth"
     fi
     echo "=== Swin-UMamba, ${setting}, seed ${SEED}${load_path:+ (resuming)}"
-    cmd=(env MODEL=swin_umamba PROTOCOL="$PROTOCOL" SETTING="$setting" SEED="$SEED" MAX_ITERS="$MAX_ITERS"
+    cmd=(env MODEL=swin_umamba PROTOCOL="$PROTOCOL" SETTING="$setting" SEED="$SEED" MAX_ITERS="$MAX_ITERS" EXP="$exp"
          USE_CHECKPOINT=1 LOAD_PATH="$load_path" bash ../scripts/train_pancreas.sh)
 
     if [ -z "$deadline" ]; then
@@ -51,7 +54,9 @@ for setting in $SETTINGS; do
         exit 0
     fi
     status=0
-    timeout "${left}s" "${cmd[@]}" || status=$?
+    # --foreground keeps the training in the terminal's process group, so Ctrl+C still stops it.
+    # The time limit then reaches python directly, because train_pancreas.sh execs it.
+    timeout --foreground "${left}s" "${cmd[@]}" || status=$?
     if [ "$status" -eq 124 ]; then
         echo "Time is up. Run the same command again to continue."
         exit 0

@@ -61,7 +61,7 @@ fi
 
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
-python train_DyCON_Pancreas.py \
+exec python train_DyCON_Pancreas.py \
     --root_dir ../data/Pancreas \
     --train_list "$TRAIN_LIST" \
     --val_list "$VAL_LIST" \
